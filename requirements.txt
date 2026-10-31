@@ -1,0 +1,5 @@
+duckdb>=2.0
+streamlit>=1.66
+altair
+pandas
+pytest
