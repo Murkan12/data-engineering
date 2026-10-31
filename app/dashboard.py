@@ -109,14 +109,15 @@ wybrane_etykiety = sidebar.multiselect(
     "Kategoria statusu", etykiety_kategorii, default=etykiety_kategorii
 )
 
-# Fragmentator placówki: globalny multiselect z pełną listą z wymiaru
-# + kubełek „(brak placówki)", domyślnie wszystkie — przelicza KPI/pie/linia
-# w miejscu, bez nowych elementów wykresów. Dotyczy tylko zakładki „Przegląd".
-PLACOWKA_BRAK = "(brak placówki)"
+# Fragmentator placówki: globalny multiselect z listą realnych placówek
+# (typ='realna' w wymiarze — dane testowe/bez nazwy/bez placówki nie mają tu
+# odniesienia), domyślnie wszystkie — przelicza KPI/pie/linia w miejscu, bez
+# nowych elementów wykresów. Dotyczy tylko zakładki „Przegląd".
 etykiety_placowek = list(
     dict.fromkeys(
-        query("SELECT nazwa_wyswietlana FROM dim_placowka ORDER BY 1")["nazwa_wyswietlana"].tolist()
-        + [PLACOWKA_BRAK]
+        query("SELECT nazwa_wyswietlana FROM dim_placowka WHERE typ = 'realna' ORDER BY 1")[
+            "nazwa_wyswietlana"
+        ].tolist()
     )
 )
 wybrane_placowki = sidebar.multiselect(
@@ -221,8 +222,9 @@ with tab_przeglad:
 
 with tab_porownanie:
     # Porównanie dwóch placówek (story 27, 28). Selektory tylko z realnymi
-    # placówkami — wykluczenie technicznych/bez nazwy/kubełka idzie przez
-    # atrybut typ w dim_placowka, nie twardą listę tutaj.
+    # placówkami (w tym 222 „Dział Sprzedaży"; bez bytów testowych i bez
+    # nazwy) — wykluczenie idzie przez atrybut typ w dim_placowka, nie twardą
+    # listę tutaj.
     realne_placowki = query(
         "SELECT nazwa_wyswietlana FROM dim_placowka WHERE typ = 'realna' ORDER BY 1"
     )["nazwa_wyswietlana"].tolist()

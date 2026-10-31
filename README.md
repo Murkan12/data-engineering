@@ -31,14 +31,14 @@ uruchomić obecnej wersji potoku. Różnice między snapshotami: +227 zapisów o
 | `dim_placowka` | wymiar placówek: `id_placowki PK`, `nazwa_wyswietlana` (normalizacja diacritików, „(bez nazwy)"), `typ ∈ {realna, techniczna, bez_nazwy}` |
 | `fakty_zapisy` | jeden wiersz na `id_zapisu` (+ `id_placowki`); odrzuca `HISTORYCZNY`; dedup multi-grup |
 | `zdarzenia` | unpivot aktywności: `id_zapisu / aktywnosc / czas_wystapienia / zrodlo_potwierdzenia` |
-| `mart_liczby_statusu` | liczebności lifetime per status/kategoria × placówka (`COUNT(DISTINCT id_zapisu)`); materiał hurtowni, poza obiegiem dashboardu |
-| `mart_nowe_zapisy_dziennie` | flow nowych zapisów na dzień z wymiarem `placowka` (kubełek „(brak placówki)"); źródło KPI, pie, linii i porównania (filtrowalne) |
+| `mart_liczby_statusu` | liczebności lifetime per status/kategoria × placówka (`COUNT(DISTINCT id_zapisu)`); tylko realne placówki (`typ='realna'`); materiał hurtowni, poza obiegiem dashboardu |
+| `mart_nowe_zapisy_dziennie` | flow nowych zapisów na dzień z wymiarem `placowka` (tylko realne place — dane testowe i wiersze bez placówki spadają); źródło KPI, pie, linii i porównania (filtrowalne) |
 
 Asercje potoku (fail-fast): nieznany status spoza słownika oraz rozjazd
 nazw pod jednym `id_placowki` (też wariant „nazwa + pusta nazwa"), duplikat
-nazwy displayowej pod różnymi ID, etykieta kolidująca z kubełkiem
-„(brak placówki)" i brak pokrycia `dim_placowka` ze stagingiem przerywają
-działanie z nonzero exit code, przed materializacją faktów.
+nazwy displayowej pod różnymi ID oraz brak pokrycia `dim_placowka` ze
+stagingiem przerywają działanie z nonzero exit code, przed materializacją
+faktów.
 
 Uwaga biznesowa: miarą czasu jest **data utworzenia w Fenku**, nie data zapisu
 w LangLionie. Status `HISTORYCZNY` (~3270 wierszy) to artefakt migracyjny i jest
@@ -51,9 +51,11 @@ Dwie zakładki: **Przegląd** i **Porównanie placówek**. Filtry w sidebarze
 
 - **Zakres dat** — obie zakładki,
 - **Kategoria statusu** (`AKTYWNY`, `ZAPISANY`, `REZYGNACJA`, `INNE`) — tylko Przegląd,
-- **Placówka** (multiselect z pełnej listy wymiaru + „(brak placówki)",
-  domyślnie wszystkie) — tylko Przegląd; przelicza KPI/pie/linię w miejscu,
-  bez nowych elementów wykresów.
+- **Placówka** (multiselect z listy realnych placówek wymiaru
+  `typ='realna'`, domyślnie wszystkie) — tylko Przegląd; przelicza
+  KPI/pie/linię w miejscu, bez nowych elementów wykresów. Place testowe
+  („X-Baza Testowa", „(bez nazwy)") i wiersze bez placówki nie mają
+  odniesienia w dashboardzie — odpada też kubełek „(brak placówki)".
 
 Przegląd: karty KPI („Wszystkie zapisy" + liczebność per kategoria), piechart
 proporcji i wykres liniowy nowych zapisów — wszystkie liczone z
@@ -61,8 +63,8 @@ proporcji i wykres liniowy nowych zapisów — wszystkie liczone z
 (statusy `tylko_filter`) istnieje tylko w dashboardzie.
 
 Porównanie placówek: selektory A/B z **wyłącznie realnych** placówek
-(`typ='realna'` w `dim_placowka` — bez „Dział Sprzedaży", „X-Baza Testowa",
-„(bez nazwy)" i „(brak placówki)"), para rozłączna, domyślnie top-2 wg liczby
+(`typ='realna'` w `dim_placowka` — z „Dział Sprzedaży", bez „X-Baza Testowa"
+i „(bez nazwy)"), para rozłączna, domyślnie top-2 wg liczby
 zapisów wyliczana z bazy. Grupowany bar 4 kategorie × 2 placówki + tabela
 (liczba, % udziału wewn., różnica A−B). Zakres dat z sidebaru obowiązuje,
 filtr kategorii — nie. Puste stany pokazują `st.info` bez stopowania drugiej

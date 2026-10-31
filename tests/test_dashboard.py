@@ -21,11 +21,12 @@ from run_pipeline import run_pipeline  # noqa: E402
 
 DASHBOARD = ROOT / "app" / "dashboard.py"
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "zapisy_minimal.csv"
+FIXTURE_MIX = Path(__file__).resolve().parent / "fixtures" / "zapisy_placowki_mix.csv"
 
 
-def odpal(tmp_path: Path, monkeypatch) -> AppTest:
+def odpal(tmp_path: Path, monkeypatch, fixture: Path = FIXTURE) -> AppTest:
     db = tmp_path / "warehouse.duckdb"
-    run_pipeline(FIXTURE, db)
+    run_pipeline(fixture, db)
     monkeypatch.setenv("DATAENG_DUCKDB", str(db))
     at = AppTest.from_file(str(DASHBOARD), default_timeout=30)
     at.run()
@@ -70,20 +71,22 @@ def test_dashboard_sie_uruchamia_i_pokazuje_kpi(tmp_path, monkeypatch):
     """Domyślne filtry: 5 kart KPI (wszystkie + 4 kategorie w kolejności lejka).
 
     Liczby niezależnie przepracowane z fixture: 4 unikalne zapisy po odrzuceniu
-    HISTORYCZNY (id 4) i dedupie (id 5) — AKTYWNY 1, ZAPISANY 2, REZYGNACJA 1,
-    tylko_filter (INNE) 0.
+    HISTORYCZNY (id 4) i dedupie (id 5), ale w martach zostają 3 — zapis 3
+    (REZYGNACJA) nie ma placówki i odpada przez filtr realnych.
+    AKTYWNY 1, ZAPISANY 2, REZYGNACJA 0, tylko_filter (INNE) 0.
     """
     at = odpal(tmp_path, monkeypatch)
     assert not at.exception
     assert karty(at) == {
-        "Wszystkie zapisy": 4,
+        "Wszystkie zapisy": 3,
         "AKTYWNY": 1,
         "ZAPISANY": 2,
-        "REZYGNACJA": 1,
+        "REZYGNACJA": 0,
         "INNE": 0,
     }
-    # pie pomija kategorie bez zapisów (INNE=0) — plaster o polu 0 nie istnieje
-    assert plaster_pie(at) == {"ZAPISANY": 2, "AKTYWNY": 1, "REZYGNACJA": 1}
+    # pie pomija kategorie bez zapisów (INNE=0 i REZYGNACJA=0 — zapis 3
+    # bez placówki spada z martów) — plaster o polu 0 nie istnieje
+    assert plaster_pie(at) == {"ZAPISANY": 2, "AKTYWNY": 1}
     # filtry sidebaru: kategoria statusu (zastąpiła status+etap) + fragmentator placówki
     assert [w.label for w in at.multiselect] == ["Kategoria statusu", "Placówka"]
     assert [w.label for w in at.date_input] == ["Zakres dat"]
@@ -143,22 +146,21 @@ def test_pusty_zakres_dat_komunikaty_w_obu_zakladkach_bez_wykresow(tmp_path, mon
 
 
 def test_filtr_placowki_uzupelnia_karte_kpi_w_calosci(tmp_path, monkeypatch):
-    """Sidebar ma multiselect „Placówka" z pełną listą (wymiar + kubełek
-    „(brak placówki)"), domyślnie wszystkie → liczby identyczne jak bez filtra.
+    """Sidebar ma multiselect „Placówka" z listą realnych placówek wymiaru,
+    domyślnie wszystkie → liczby identyczne jak bez filtra (kubełek
+    „(brak placówki)" zniknął razem z danymi testowymi).
     """
     at = odpal(tmp_path, monkeypatch)
     assert not at.exception
     assert [w.label for w in at.multiselect] == ["Kategoria statusu", "Placówka"]
     plac = at.multiselect[1]
-    assert sorted(plac.options) == sorted(
-        ["Online Polska CJO", "Wrocław CJO", "(bez nazwy)", "X-Baza Testowa", "(brak placówki)"]
-    )
+    assert sorted(plac.options) == sorted(["Online Polska CJO", "Wrocław CJO"])
     assert sorted(plac.value) == sorted(plac.options)
     assert karty(at) == {
-        "Wszystkie zapisy": 4,
+        "Wszystkie zapisy": 3,
         "AKTYWNY": 1,
         "ZAPISANY": 2,
-        "REZYGNACJA": 1,
+        "REZYGNACJA": 0,
         "INNE": 0,
     }
 
@@ -167,21 +169,50 @@ def test_odfiltrowanie_placowki_przelicza_kpi_w_miejscu(tmp_path, monkeypatch):
     """Fragmentator: odznaczenie placówki przelicza KPI i pie w miejscu —
     te same karty, zero nowych elementów wykresów, żadnych facetów.
 
-    Bez „Wrocław CJO" wypada ZAPISANY 2 → zostaje AKTYWNY 1 (Online) + REZYGNACJA 1 (brak).
+    Bez „Wrocław CJO" wypada ZAPISANY 2 → zostaje AKTYWNY 1 (Online).
     """
     at = odpal(tmp_path, monkeypatch)
-    at.multiselect[1].set_value(
-        ["Online Polska CJO", "(bez nazwy)", "X-Baza Testowa", "(brak placówki)"]
-    ).run()
+    at.multiselect[1].set_value(["Online Polska CJO"]).run()
+    assert not at.exception
+    assert karty(at) == {
+        "Wszystkie zapisy": 1,
+        "AKTYWNY": 1,
+        "ZAPISANY": 0,
+        "REZYGNACJA": 0,
+        "INNE": 0,
+    }
+    assert plaster_pie(at) == {"AKTYWNY": 1}
+
+
+def test_filtr_placowki_oferuje_tylko_realne(tmp_path, monkeypatch):
+    """Sidebar „Placówka" bierze opcje z wymiaru z filtrem typ='realna' —
+    bez bytów testowych, placówki bez nazwy i kubełka „(brak placówki)";
+    domyślnie wszystkie realne są zaznaczone."""
+    at = odpal(tmp_path, monkeypatch, FIXTURE_MIX)
+    assert not at.exception
+    plac = at.multiselect[1]
+    assert sorted(plac.options) == sorted(["Wrocław CJO", "Dział Sprzedaży"])
+    assert sorted(plac.value) == sorted(plac.options)
+    for brud in ("X-Baza Testowa", "(bez nazwy)", "(brak placówki)"):
+        assert brud not in plac.options
+
+
+def test_dane_testowe_nigdy_nie_maja_odniesienia_na_dashboardzie(tmp_path, monkeypatch):
+    """Cały ślad danych testowych znika: mix-fixture ma aktywne zapisy pod
+    206/200/NULL — KPI liczą tylko realne place (AKTYWNY 1 Wrocław,
+    ZAPISANY 1 Dział Sprzedaży), a selektory porównania oferują Dział Sprzedaży."""
+    at = odpal(tmp_path, monkeypatch, FIXTURE_MIX)
     assert not at.exception
     assert karty(at) == {
         "Wszystkie zapisy": 2,
         "AKTYWNY": 1,
-        "ZAPISANY": 0,
-        "REZYGNACJA": 1,
+        "ZAPISANY": 1,
+        "REZYGNACJA": 0,
         "INNE": 0,
     }
-    assert plaster_pie(at) == {"AKTYWNY": 1, "REZYGNACJA": 1}
+    assert plaster_pie(at) == {"AKTYWNY": 1, "ZAPISANY": 1}
+    assert "Dział Sprzedaży" in at.selectbox[0].options
+    assert "X-Baza Testowa" not in str([m.label for m in at.metric])
 
 
 def test_porownanie_renderuje_domyslna_reale_pare(tmp_path, monkeypatch):
@@ -260,7 +291,7 @@ def test_porownanie_ignoruje_filtry_kategorii_i_placowki(tmp_path, monkeypatch):
 
     # filtr placówki z sidebaru też nie dotyczy porównania
     at2 = odpal(tmp_path, monkeypatch)
-    at2.multiselect[1].set_value(["(brak placówki)"]).run()
+    at2.multiselect[1].set_value(["Online Polska CJO"]).run()
     assert not at2.exception
     assert karta_wyjety(at2, "A: ") == {"A: Wrocław CJO": 2}
 
@@ -273,14 +304,10 @@ def test_porownanie_pusty_zakres_dat_komunikat_przeglad_zyje(tmp_path, monkeypat
     assert "Brak zapisów w porównywanych placówkach dla wybranego zakresu dat." in [
         i.value for i in at.info
     ]
-    # Przegląd żyje: 16.02–2.03 łapie zapis 3 (REZYGNACJA, „brak placówki")
-    assert karty(at) == {
-        "Wszystkie zapisy": 1,
-        "AKTYWNY": 0,
-        "ZAPISANY": 0,
-        "REZYGNACJA": 1,
-        "INNE": 0,
-    }
+    # Przegląd dla 16.02–2.03: zapis 3 (REZYGNACJA) nie ma placówki i odpada
+    # z martów → obie zakładki gaśnie komunikatem, aplikacja bez wyjątku
+    assert not karty(at)
+    assert "Brak zapisów dla wybranych filtrów." in [i.value for i in at.info]
 
 
 def test_dashboard_bez_bazy_wskazuje_runner_a_nie_wysadza_sie(tmp_path, monkeypatch):

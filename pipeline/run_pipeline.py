@@ -146,16 +146,6 @@ def _assert_dim_placowka(con: duckdb.DuckDBPyConnection) -> None:
             "silent merge; rozstrzygnij nazwy w pipeline/sql/05_dim_placowka.sql."
         )
 
-    zarezerwowana = con.execute(
-        "SELECT count(*) FROM dim_placowka WHERE nazwa_wyswietlana = '(brak placówki)'"
-    ).fetchone()[0]
-    if zarezerwowana:
-        raise PipelineError(
-            "Nazwa '(brak placówki)' jest zarezerwowana dla kubełka wierszy bez "
-            "placówki — realna placówka nie może się tak nazywać "
-            "(pipeline/sql/05_dim_placowka.sql)."
-        )
-
 
 def _podsumowanie(con: duckdb.DuckDBPyConnection) -> dict[str, int]:
     tabele = [

@@ -1,0 +1,6 @@
+ID zapisu;Status zapisu;Etap zapisu;ID grupy;ID usługi;Rodzaj grupy;Okres grupy;Grupa od;Grupa do;Stan grupy;Utworzono zapis w Fenku;Data zapisu w LangLionie;Przekazano do DOK;Kliknięto przesłano umowę;Nauczyciel potwierdził realizację;Źródło potwierdzenia umowy;Źródło potwierdzenia nauczyciela;ID placówki (z zapisu);Placówka (z zapisu)
+10;AKTYWNY;sales;1000;9;semestr;;;;aktywna;5.05.2026 10:00;;;;;;;206;X-Baza Testowa
+11;ZAPISANY;sales;1100;9;semestr;;;;aktywna;5.05.2026 11:00;;;;;;;200;
+12;ZAPISANY;sales;1200;9;semestr;;;;aktywna;5.05.2026 12:00;;;;;;;222;Dział Sprzedaży
+13;AKTYWNY;sales;1300;9;semestr;;;;aktywna;5.05.2026 13:00;;;;;;;1;Wroclaw CJO
+14;REZYGNACJA;customer_service;1400;9;karnet;;;;aktywna;5.05.2026 14:00;;;;;;;;

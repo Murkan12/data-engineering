@@ -46,8 +46,9 @@ def test_potok_laduje_fixture_i_materializuje_fakty_w_ziarnie_zapis(tmp_path):
         con.close()
 
 
-def test_potok_license_zapisy_w_trzech_kategoriach_biznesowych(tmp_path):
-    """Mart liczebności: AKTYWNY 1, ZAPISANY 2 (distinct po ID), REZYGNACJA 1."""
+def test_potok_license_zapisy_w_kategoriach_biznesowych(tmp_path):
+    """Mart liczebności: AKTYWNY 1, ZAPISANY 2 (distinct po ID) — zapis 3
+    (REZYGNACJA) bez placówki spada, bo marty obejmują tylko realne placówki."""
     proc, db = run_pipeline(tmp_path, "zapisy_minimal.csv")
     assert proc.returncode == 0, proc.stderr
 
@@ -58,13 +59,13 @@ def test_potok_license_zapisy_w_trzech_kategoriach_biznesowych(tmp_path):
                 "SELECT kategoria_biznesowa, sum(liczba_zapisow) FROM mart_liczby_statusu GROUP BY 1"
             ).fetchall()
         )
-        assert licznik == {"aktywny": 1, "zapisany": 2, "rezygnacja": 1}
+        assert licznik == {"aktywny": 1, "zapisany": 2}
 
         # statusy są ponumerowane individualnie z etykietą słownika
         wiersze = con.execute(
             "SELECT status_zapisu, liczba_zapisow FROM mart_liczby_statusu ORDER BY 1"
         ).fetchall()
-        assert wiersze == [("AKTYWNY", 1), ("REZYGNACJA", 1), ("ZAPISANY", 2)]
+        assert wiersze == [("AKTYWNY", 1), ("ZAPISANY", 2)]
     finally:
         con.close()
 
@@ -163,13 +164,13 @@ def test_mart_dziennych_nowych_zapisow_z_wymiarami_do_filtrowania(tmp_path):
         ).fetchall()
         assert wiersze == [
             (date(2026, 2, 15), "ZAPISANY", "closed", "zapisany", 1),
-            (date(2026, 2, 20), "REZYGNACJA", "customer_service", "rezygnacja", 1),
             (date(2026, 3, 3), "ZAPISANY", "sales", "zapisany", 1),
             (date(2026, 4, 1), "AKTYWNY", "sales", "aktywny", 1),
         ]
 
-        # HISTORYCZNY nie zostawia śladu na linii czasu (artefakt migracyjny 15.02 16:49)
-        assert sum(w[4] for w in wiersze) == 4
+        # HISTORYCZNY nie zostawia śladu na linii czasu (artefakt migracyjny 15.02 16:49);
+        # REZYGNACJA (20.02, zapis 3 bez placówki) odpada przez filtr realnych placówek
+        assert sum(w[4] for w in wiersze) == 3
 
         # suma dzienna to distinct po ID zapisu, nie wiersze źródłowe
         assert con.execute(
@@ -182,7 +183,7 @@ def test_mart_dziennych_nowych_zapisow_z_wymiarami_do_filtrowania(tmp_path):
 
 def test_dim_placowka_normalizuje_nazwy_i_rozroznia_typy(tmp_path):
     """Wymiar placówek: distinct ID→nazwa ze stagingu, mapa displayowa diacritików,
-    typy: realna / techniczna (222, 206) / bez_nazwy (ID 200 — pusta nazwa).
+    typy: realna / techniczna (206) / bez_nazwy (ID 200 — pusta nazwa).
     Obejmuje też placówki tylko z wierszy HISTORYCZNYCH (206, 200) — wymiar
     budowany jest z całego stagingu.
     """
@@ -204,10 +205,61 @@ def test_dim_placowka_normalizuje_nazwy_i_rozroznia_typy(tmp_path):
         con.close()
 
 
-def test_fakty_i_marty_nosza_placowke_z_kubelkiem_brak(tmp_path):
+def test_dim_placowka_awansuje_dzial_sprzedazy_na_realna(tmp_path):
+    """Dział Sprzedaży (222) to realna placówka — ma odniesienie w dashboardzie.
+    Niechciane byty pozostają poza 'realna': X-Baza Testowa (206) = techniczna,
+    ID 200 = bez_nazwy. Fixture zawiera je w AKTYWNYCH wierszach (nie tylko
+    HISTORYCZNY), żeby dowieść typologii na danych przechodzących dalej."""
+    proc, db = run_pipeline(tmp_path, "zapisy_placowki_mix.csv")
+    assert proc.returncode == 0, proc.stderr
+
+    con = open_db(db)
+    try:
+        typy = dict(
+            con.execute("SELECT id_placowki, typ FROM dim_placowka").fetchall()
+        )
+        assert typy == {
+            1: "realna",
+            200: "bez_nazwy",
+            206: "techniczna",
+            222: "realna",
+        }
+    finally:
+        con.close()
+
+
+def test_marty_tylko_realne_placowki_bez_kubelkow(tmp_path):
+    """Marty materializują wyłącznie placówki typ='realna': X-Baza Testowa (206),
+    (bez nazwy) (200) i wiersz bez placówki (NULL id) spadają — dane testowe
+    nie mają odniesienia w dashboardzie. Fakty zostają kompletne (audyt):
+    w mix-fixture 5 aktywnych zapisów, w martach tylko 2 realne placówki."""
+    proc, db = run_pipeline(tmp_path, "zapisy_placowki_mix.csv")
+    assert proc.returncode == 0, proc.stderr
+
+    con = open_db(db)
+    try:
+        assert con.execute("SELECT count(*) FROM fakty_zapisy").fetchone()[0] == 5, (
+            "fakty nie są miejscem filtra — pełne dane do audytu"
+        )
+
+        for tabela in ("mart_liczby_statusu", "mart_nowe_zapisy_dziennie"):
+            placowki = {
+                row[0]
+                for row in con.execute(f"SELECT DISTINCT placowka FROM {tabela}").fetchall()
+            }
+            assert placowki == {"Wrocław CJO", "Dział Sprzedaży"}, tabela
+            assert (
+                con.execute(f"SELECT count(*) FROM {tabela} WHERE id_placowki IS NULL").fetchone()[0]
+                == 0
+            ), tabela
+    finally:
+        con.close()
+
+
+def test_fakty_nosza_placowke_a_marty_odrzucaja_bez_placowki(tmp_path):
     """Fakt dziedziczy id_placowki (dedup multi-grupa bez zmian — 1 zapis = 1 placówka),
-    marty mają id_placowki + displayową etykietę; NULL placówka → kubełek
-    „(brak placówki)" w martach (left join na dim).
+    w tym NULL — fakty są kompletne do audytu; marty mają id_placowki + displayową
+    etykietę tylko dla realnych placówek (kubełek „(brak placówki)" zniknął).
     """
     proc, db = run_pipeline(tmp_path, "zapisy_minimal.csv")
     assert proc.returncode == 0, proc.stderr
@@ -227,15 +279,14 @@ def test_fakty_i_marty_nosza_placowke_z_kubelkiem_brak(tmp_path):
             """
         ).fetchall()
         assert dzienne == [
-            ("(brak placówki)", 1),
             ("Online Polska CJO", 1),
             ("Wrocław CJO", 2),
         ]
 
-        # kolumna id_placowki jest w marcie (join dashboarda po etykiecie nie mnozi ziarna)
+        # ani jednego wiersza bez placówki w marcie (join do dim typ='realna')
         assert con.execute(
             "SELECT count(*) FROM mart_nowe_zapisy_dziennie WHERE id_placowki IS NULL"
-        ).fetchone()[0] == 1
+        ).fetchone()[0] == 0
 
         liczby = con.execute(
             """
@@ -244,7 +295,6 @@ def test_fakty_i_marty_nosza_placowke_z_kubelkiem_brak(tmp_path):
             """
         ).fetchall()
         assert liczby == [
-            ("(brak placówki)", "REZYGNACJA", 1),
             ("Online Polska CJO", "AKTYWNY", 1),
             ("Wrocław CJO", "ZAPISANY", 2),
         ]
@@ -348,8 +398,8 @@ def test_potok_jest_idempotentny_pelne_przeladowanie(tmp_path):
         for tabela, oczekiwana in [
             ("fakty_zapisy", 4),
             ("zdarzenia", 8),
-            ("mart_liczby_statusu", 3),
-            ("mart_nowe_zapisy_dziennie", 4),
+            ("mart_liczby_statusu", 2),
+            ("mart_nowe_zapisy_dziennie", 3),
         ]:
             assert con.execute(f"SELECT count(*) FROM {tabela}").fetchone()[0] == oczekiwana, tabela
     finally:

@@ -3,9 +3,10 @@
 --   * nazwa_wyswietlana: normalizacja diacrityków + kubełek „(bez nazwy)" dla ID
 --     bez nazwy źródłowej (np. 200); mapa jawna CASE — jedyne miejsce, gdzie
 --     literówki nazw z systemu są poprawiane;
---   * typ: 'techniczna' = byty systemowe wykluczone z porównań na dashboardzie
---     (222 Dział Sprzedaży, 206 X-Baza Testowa), 'bez_nazwy' = ID bez nazwy,
---     'realna' = reszta. Rozłączenie realnych od technicznych mieszka tutaj,
+--   * typ: 'techniczna' = byt testowy wykluczony z dashboardu (206 X-Baza
+--     Testowa), 'bez_nazwy' = ID bez nazwy (200), 'realna' = reszta — w tym
+--     222 Dział Sprzedaży (awansowany: realna placówka, ma odniesienie na
+--     dashboardzie). Rozłączenie realnych od reszty mieszka tutaj,
 --     dashboard nie trzyma twardej listy ID.
 -- Asercje spójności (jedna nazwa na ID, pełne pokrycie stagingu) uruchamia
 -- runner PRZED materializacją faktów.
@@ -27,7 +28,7 @@ SELECT
     END AS nazwa_wyswietlana,
     CASE
         WHEN placowka_z_zapisu IS NULL   THEN 'bez_nazwy'
-        WHEN id_placowki IN ('222', '206') THEN 'techniczna'
+        WHEN id_placowki = '206' THEN 'techniczna'
         ELSE 'realna'
     END AS typ
 FROM (
