@@ -22,7 +22,7 @@ SQL_DIR = Path(__file__).resolve().parent / "sql"
 
 EXIT_OK = 0
 EXIT_USAGE = 1
-EXIT_STATUS_DICTIONARY = 2  # nieznany status → fail-fast
+EXIT_ASSERTION = 2  # asercja fail-fast (słownik statusów, wymiar placówek)
 
 
 class PipelineError(RuntimeError):
@@ -49,6 +49,11 @@ def run_pipeline(csv_path: Path, db_path: Path) -> dict[str, int]:
         _wykonaj(con, "02_dim_status.sql")
         # Asercja słownika po zasileniu stagingu, PRZED materializacją faktów.
         _assert_znane_statusy(con, csv_path)
+        # Asercje wymiaru placówek: spójność id→nazwa na stagingu, potem budowa
+        # dim i pokrycie — wszystko PRZED faktami (fail-fast jak słownik statusów).
+        _assert_spójność_placówek(con, csv_path)
+        _wykonaj(con, "05_dim_placowka.sql")
+        _assert_dim_placowka(con)
         _wykonaj(con, "03_transform.sql")
         _wykonaj(con, "04_marts.sql")
         summary = _podsumowanie(con)
@@ -76,12 +81,56 @@ def _assert_znane_statusy(con: duckdb.DuckDBPyConnection, csv_path: Path) -> Non
         )
 
 
+def _assert_spójność_placówek(con: duckdb.DuckDBPyConnection, csv_path: Path) -> None:
+    """Fail-fast: jedno ID placówki nie może mieć wielu nazw źródłowych (story 26)."""
+    konflikty = con.execute(
+        """
+        SELECT id_placowki, list(DISTINCT placowka_z_zapisu) AS nazwy
+        FROM staging_zapisy
+        WHERE id_placowki IS NOT NULL
+        GROUP BY id_placowki
+        HAVING count(DISTINCT placowka_z_zapisu) > 1
+        ORDER BY min(try_cast(id_placowki AS BIGINT))
+        """
+    ).fetchall()
+    if konflikty:
+        opis = "; ".join(
+            f"ID {id_placowki}: {', '.join(sorted(nazwy))}" for id_placowki, nazwy in konflikty
+        )
+        raise PipelineError(
+            f"Konflikt nazw placówek w pliku {csv_path}: {opis}. "
+            "To samo ID placówki ma wiele nazw źródłowych — wyjaśnij ze źródłem "
+            "lub dodaj normalizację do pipeline/sql/05_dim_placowka.sql."
+        )
+
+
+def _assert_dim_placowka(con: duckdb.DuckDBPyConnection) -> None:
+    """Asercja pokrycia: każde niepuste ID ze stagingu ma wiersz w dim_placowka."""
+    braki = con.execute(
+        """
+        SELECT count(*)
+        FROM (
+            SELECT DISTINCT try_cast(id_placowki AS BIGINT) AS id
+            FROM staging_zapisy
+            WHERE id_placowki IS NOT NULL
+        ) s
+        WHERE s.id NOT IN (SELECT id_placowki FROM dim_placowka)
+        """
+    ).fetchone()[0]
+    if braki:
+        raise PipelineError(
+            f"Wymiar dim_placowka nie pokrywa {braki} ID placówek ze stagingu "
+            "— sprawdź pipeline/sql/05_dim_placowka.sql."
+        )
+
+
 def _podsumowanie(con: duckdb.DuckDBPyConnection) -> dict[str, int]:
     tabele = [
         "staging_zapisy",
         "fakty_zapisy",
         "zdarzenia",
         "dim_status",
+        "dim_placowka",
         "mart_liczby_statusu",
         "mart_nowe_zapisy_dziennie",
     ]
@@ -93,8 +142,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--csv",
         type=Path,
-        default=BASE_DIR / "data" / "zapisy_grupy_historia.csv",
-        help="Plik źródłowy CSV (separator ';')",
+        default=BASE_DIR / "data" / "zapisy_grupy_placowka.csv",
+        help="Plik źródłowy CSV (separator ';', snapshot z placówkami; "
+        "archiwalny zapisy_grupy_historia.csv nie ma kolumn placówki)",
     )
     parser.add_argument(
         "--db",
@@ -112,7 +162,7 @@ def main(argv: list[str] | None = None) -> int:
         return EXIT_USAGE
     except PipelineError as err:
         print(f"BŁĄD POTOKU: {err}", file=sys.stderr)
-        return EXIT_STATUS_DICTIONARY
+        return EXIT_ASSERTION
 
     for tabela, liczba in summary.items():
         print(f"{tabela}: {liczba} wierszy")

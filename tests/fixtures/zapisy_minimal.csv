@@ -1,7 +1,8 @@
-ID zapisu;Status zapisu;Etap zapisu;ID grupy;ID usługi;Rodzaj grupy;Okres grupy;Grupa od;Grupa do;Stan grupy;Utworzono zapis w Fenku;Data zapisu w LangLionie;Przekazano do DOK;Kliknięto przesłano umowę;Nauczyciel potwierdził realizację;Źródło potwierdzenia umowy;Źródło potwierdzenia nauczyciela
-1;AKTYWNY;sales;100;9;semestr;2026/27;2.03.2026;2.06.2026;aktywna;1.04.2026 9:30;;;;;;
-2;ZAPISANY;closed;200;9;semestr;2026/27;2.03.2026;2.06.2026;aktywna;15.02.2026 16:49;14.02.2026 10:00;;1.04.2026 9:31;2.04.2026 12:00;email;aplikacja_nauczyciela
-3;REZYGNACJA;customer_service;300;9;karnet;;;;aktywna;15.02.2026 16:49;;;;;;
-4;HISTORYCZNY;sales;400;;;;;;aktywna;15.02.2026 16:49;;;;;;
-5;ZAPISANY;sales;500;9;semestr;;;;aktywna;3.03.2026 8:00;;;5.03.2026 10:00;;;
-5;ZAPISANY;sales;501;9;semestr;;;;aktywna;3.03.2026 8:00;;;5.03.2026 10:00;;portal;
+ID zapisu;Status zapisu;Etap zapisu;ID grupy;ID usługi;Rodzaj grupy;Okres grupy;Grupa od;Grupa do;Stan grupy;Utworzono zapis w Fenku;Data zapisu w LangLionie;Przekazano do DOK;Kliknięto przesłano umowę;Nauczyciel potwierdził realizację;Źródło potwierdzenia umowy;Źródło potwierdzenia nauczyciela;ID placówki (z zapisu);Placówka (z zapisu)
+1;AKTYWNY;sales;100;9;semestr;2026/27;2.03.2026;2.06.2026;aktywna;1.04.2026 9:30;;;;;;;128;Online Polska CJO
+2;ZAPISANY;closed;200;9;semestr;2026/27;2.03.2026;2.06.2026;aktywna;15.02.2026 16:49;14.02.2026 10:00;;1.04.2026 9:31;2.04.2026 12:00;email;aplikacja_nauczyciela;1;Wroclaw CJO
+3;REZYGNACJA;customer_service;300;9;karnet;;;;aktywna;20.02.2026 12:00;;;;;;;;
+4;HISTORYCZNY;sales;400;;;;;;aktywna;15.02.2026 16:49;;;;;;;206;X-Baza Testowa
+5;ZAPISANY;sales;500;9;semestr;;;;aktywna;3.03.2026 8:00;;;5.03.2026 10:00;;;;1;Wroclaw CJO
+5;ZAPISANY;sales;501;9;semestr;;;;aktywna;3.03.2026 8:00;;;5.03.2026 10:00;;portal;;1;Wroclaw CJO
+6;HISTORYCZNY;sales;600;;;;;;aktywna;15.02.2026 16:49;;;;;;;200;

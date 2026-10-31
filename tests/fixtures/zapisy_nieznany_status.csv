@@ -1,3 +1,3 @@
-ID zapisu;Status zapisu;Etap zapisu;ID grupy;ID usługi;Rodzaj grupy;Okres grupy;Grupa od;Grupa do;Stan grupy;Utworzono zapis w Fenku;Data zapisu w LangLionie;Przekazano do DOK;Kliknięto przesłano umowę;Nauczyciel potwierdził realizację;Źródło potwierdzenia umowy;Źródło potwierdzenia nauczyciela
-1;AKTYWNY;sales;100;9;;;;;aktywna;1.04.2026 9:30;;;;;;
-2;NOWY_STATUS_Z_SYSTEMU;sales;200;9;;;;;aktywna;2.04.2026 9:30;;;;;;
+ID zapisu;Status zapisu;Etap zapisu;ID grupy;ID usługi;Rodzaj grupy;Okres grupy;Grupa od;Grupa do;Stan grupy;Utworzono zapis w Fenku;Data zapisu w LangLionie;Przekazano do DOK;Kliknięto przesłano umowę;Nauczyciel potwierdził realizację;Źródło potwierdzenia umowy;Źródło potwierdzenia nauczyciela;ID placówki (z zapisu);Placówka (z zapisu)
+1;AKTYWNY;sales;100;9;;;;;aktywna;1.04.2026 9:30;;;;;;;128;Online Polska CJO
+2;NOWY_STATUS_Z_SYSTEMU;sales;200;9;;;;;aktywna;2.04.2026 9:30;;;;;;;;

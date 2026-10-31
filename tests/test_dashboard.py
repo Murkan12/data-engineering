@@ -6,6 +6,7 @@ i że KPI oraz pie reagują na filtry (kategoria, zakres dat, stany puste).
 """
 
 import json
+import re
 import sys
 from datetime import date
 from pathlib import Path
@@ -32,22 +33,17 @@ def odpal(tmp_path: Path, monkeypatch) -> AppTest:
 
 
 def karty(at: AppTest) -> dict[str, int]:
-    return {m.label: int(m.value) for m in at.metric}
+    """Karty KPI zakładki Przegląd — bez metryk porównania (prefiks „A: "/"B: ")."""
+    return {
+        m.label: int(m.value)
+        for m in at.metric
+        if not re.match(r"^[AB]: ", m.label)
+    }
 
 
 def plaster_pie(at: AppTest) -> dict[str, int]:
     """Dane plastra (kategoria -> liczba) z wykresu kołowego, zdekodowane z_arrow."""
-    for wykres in at.get("vega_lite_chart"):
-        spec = json.loads(wykres.proto.spec)
-        mark = spec["mark"]
-        if (mark["type"] if isinstance(mark, dict) else mark) != "arc":
-            continue
-        name = spec["data"]["name"]
-        for ds in wykres.proto.datasets:
-            if ds.name == name:
-                wiersze = pa.ipc.open_stream(ds.data.data).read_all().to_pylist()
-                return {r["kategoria"]: int(r["liczba"]) for r in wiersze}
-    raise AssertionError("brak wykresu kołowego (arc) w dashboardzie")
+    return {r["kategoria"]: int(r["liczba"]) for r in dane_wykresu(at, "arc")}
 
 
 def test_dashboard_sie_uruchamia_i_pokazuje_kpi(tmp_path, monkeypatch):
@@ -68,8 +64,8 @@ def test_dashboard_sie_uruchamia_i_pokazuje_kpi(tmp_path, monkeypatch):
     }
     # pie pomija kategorie bez zapisów (INNE=0) — plaster o polu 0 nie istnieje
     assert plaster_pie(at) == {"ZAPISANY": 2, "AKTYWNY": 1, "REZYGNACJA": 1}
-    # filtr „Kategoria statusu" zastępuje filtry po statusie i etapie
-    assert [w.label for w in at.multiselect] == ["Kategoria statusu"]
+    # filtry sidebaru: kategoria statusu (zastąpiła status+etap) + fragmentator placówki
+    assert [w.label for w in at.multiselect] == ["Kategoria statusu", "Placówka"]
     assert [w.label for w in at.date_input] == ["Zakres dat"]
 
 
@@ -105,21 +101,185 @@ def test_kpi_odzwierciedlaja_zakres_dat(tmp_path, monkeypatch):
 
 
 def test_brak_kategorii_pokazuje_jeden_komunikat_bez_wykresow(tmp_path, monkeypatch):
+    """Puste kategorie: Przegląd gaśnie komunikatem i kartami KPI, ale
+    porównanie żyje dalej (filtr kategorii go nie dotyczy)."""
     at = odpal(tmp_path, monkeypatch)
     at.multiselect[0].set_value([]).run()
     assert not at.exception
-    assert not at.metric
-    assert not at.subheader
+    assert not karty(at)  # brak kart KPI Przeglądu; metryki porównania to inny świat
     assert [i.value for i in at.info] == ["Wybierz zakres dat oraz co najmniej jedną kategorię statusu."]
 
 
-def test_pusty_zakres_dat_pokazuje_jeden_komunikat_bez_wykresow(tmp_path, monkeypatch):
+def test_pusty_zakres_dat_komunikaty_w_obu_zakladkach_bez_wykresow(tmp_path, monkeypatch):
     at = odpal(tmp_path, monkeypatch)
-    at.date_input[0].set_value((date(2026, 2, 16), date(2026, 3, 2))).run()
+    at.date_input[0].set_value((date(2026, 2, 16), date(2026, 2, 19))).run()
     assert not at.exception
     assert not at.metric
     assert not at.subheader
-    assert [i.value for i in at.info] == ["Brak zapisów dla wybranych filtrów."]
+    assert [i.value for i in at.info] == [
+        "Brak zapisów dla wybranych filtrów.",
+        "Brak zapisów w porównywanych placówkach dla wybranego zakresu dat.",
+    ]
+
+
+def test_filtr_placowki_uzupelnia_karte_kpi_w_calosci(tmp_path, monkeypatch):
+    """Sidebar ma multiselect „Placówka" z pełną listą (wymiar + kubełek
+    „(brak placówki)"), domyślnie wszystkie → liczby identyczne jak bez filtra.
+    """
+    at = odpal(tmp_path, monkeypatch)
+    assert not at.exception
+    assert [w.label for w in at.multiselect] == ["Kategoria statusu", "Placówka"]
+    plac = at.multiselect[1]
+    assert sorted(plac.options) == sorted(
+        ["Online Polska CJO", "Wrocław CJO", "(bez nazwy)", "X-Baza Testowa", "(brak placówki)"]
+    )
+    assert sorted(plac.value) == sorted(plac.options)
+    assert karty(at) == {
+        "Wszystkie zapisy": 4,
+        "AKTYWNY": 1,
+        "ZAPISANY": 2,
+        "REZYGNACJA": 1,
+        "INNE": 0,
+    }
+
+
+def test_odfiltrowanie_placowki_przelicza_kpi_w_miejscu(tmp_path, monkeypatch):
+    """Fragmentator: odznaczenie placówki przelicza KPI i pie w miejscu —
+    te same karty, zero nowych elementów wykresów, żadnych facetów.
+
+    Bez „Wrocław CJO" wypada ZAPISANY 2 → zostaje AKTYWNY 1 (Online) + REZYGNACJA 1 (brak).
+    """
+    at = odpal(tmp_path, monkeypatch)
+    at.multiselect[1].set_value(
+        ["Online Polska CJO", "(bez nazwy)", "X-Baza Testowa", "(brak placówki)"]
+    ).run()
+    assert not at.exception
+    assert karty(at) == {
+        "Wszystkie zapisy": 2,
+        "AKTYWNY": 1,
+        "ZAPISANY": 0,
+        "REZYGNACJA": 1,
+        "INNE": 0,
+    }
+    assert plaster_pie(at) == {"AKTYWNY": 1, "REZYGNACJA": 1}
+
+
+def dane_wykresu(at: AppTest, mark: str) -> list[dict]:
+    """Dane wykresu altair o zadanym mark (arc/line/bar), zdekodowane z_arrow."""
+    for wykres in at.get("vega_lite_chart"):
+        spec = json.loads(wykres.proto.spec)
+        m = spec.get("mark")
+        m = m["type"] if isinstance(m, dict) else m
+        if m != mark:
+            continue
+        name = spec["data"]["name"]
+        for ds in wykres.proto.datasets:
+            if ds.name == name:
+                return pa.ipc.open_stream(ds.data.data).read_all().to_pylist()
+    raise AssertionError(f"brak wykresu {mark} w dashboardzie")
+
+
+def karta_wyjety(at: AppTest, prefix: str) -> dict[str, int]:
+    return {m.label: int(m.value) for m in at.metric if m.label.startswith(prefix)}
+
+
+def test_porownanie_renderuje_domyslna_reale_pare(tmp_path, monkeypatch):
+    """Zakładka „Porównanie placówek": selektory A/B tylko z realnymi placówkami
+    (bez technicznych/bez nazwy/brak), domyślnie top-2 wg liczby zapisów.
+
+    fixture: Wrocław CJO = 2 zapisy (A), Online Polska CJO = 1 (B).
+    Tabela: 4 kategorie × (liczba A, % A, liczba B, % B, różnica A−B).
+    """
+    at = odpal(tmp_path, monkeypatch)
+    assert not at.exception
+    assert [t.label for t in at.get("tab")] == ["Przegląd", "Porównanie placówek"]
+
+    a, b = at.selectbox[0], at.selectbox[1]
+    assert a.label == "Placówka A" and a.value == "Wrocław CJO"
+    assert b.label == "Placówka B" and b.value == "Online Polska CJO"
+    # tylko realne — kubełek/techniczne/bez nazwy wykluczone z listy selektorów
+    assert set(a.options) == {"Wrocław CJO", "Online Polska CJO"}
+
+    assert karta_wyjety(at, "A: ") == {"A: Wrocław CJO": 2}
+    assert karta_wyjety(at, "B: ") == {"B: Online Polska CJO": 1}
+
+    paski = dane_wykresu(at, "bar")
+    assert {(r["placowka"], r["kategoria"]): r["liczba"] for r in paski} == {
+        ("Wrocław CJO", "AKTYWNY"): 0,
+        ("Wrocław CJO", "ZAPISANY"): 2,
+        ("Wrocław CJO", "REZYGNACJA"): 0,
+        ("Wrocław CJO", "INNE"): 0,
+        ("Online Polska CJO", "AKTYWNY"): 1,
+        ("Online Polska CJO", "ZAPISANY"): 0,
+        ("Online Polska CJO", "REZYGNACJA"): 0,
+        ("Online Polska CJO", "INNE"): 0,
+    }
+
+    tabela = at.dataframe[0].value
+    assert list(tabela.columns) == [
+        "Kategoria", "Liczba A", "% A", "Liczba B", "% B", "Różnica (A−B)",
+    ]
+    assert tabela["Kategoria"].tolist() == ["AKTYWNY", "ZAPISANY", "REZYGNACJA", "INNE"]
+    assert tabela["Liczba A"].tolist() == [0, 2, 0, 0]
+    assert tabela["Liczba B"].tolist() == [1, 0, 0, 0]
+    assert tabela["Różnica (A−B)"].tolist() == [-1, 2, 0, 0]
+    assert tabela["% A"].tolist() == [0.0, 1.0, 0.0, 0.0]
+    assert tabela["% B"].tolist() == [1.0, 0.0, 0.0, 0.0]
+
+
+def test_porownanie_przelicza_sie_po_zmianie_pary(tmp_path, monkeypatch):
+    """Zamiana A/B odwraca słupki, metryki i różnicę w tabeli."""
+    at = odpal(tmp_path, monkeypatch)
+    at.selectbox[0].set_value("Online Polska CJO").run()
+    assert not at.exception
+    # kolizja nie istnieje: B zjechało na Wrocław CJO
+    assert at.selectbox[0].value == "Online Polska CJO"
+    assert at.selectbox[1].value == "Wrocław CJO"
+    assert karta_wyjety(at, "A: ") == {"A: Online Polska CJO": 1}
+    paski = dane_wykresu(at, "bar")
+    assert {(r["placowka"], r["kategoria"]): r["liczba"] for r in paski}[
+        ("Online Polska CJO", "AKTYWNY")
+    ] == 1
+    tabela = at.dataframe[0].value
+    assert tabela["Różnica (A−B)"].tolist() == [1, -2, 0, 0]
+
+
+def test_porownanie_ignoruje_filtry_kategorii_i_placowki(tmp_path, monkeypatch):
+    """Filtry sidebaru nie wchodzą w grę w porównaniu: 4 kategorie zawsze,
+    placówki z własnych selektorów. Przegląd przy pustych kategoriach gaśnie
+    komunikatem, ale aplikacja żyje dalej."""
+    at = odpal(tmp_path, monkeypatch)
+    at.multiselect[0].set_value([]).run()
+    assert not at.exception
+    assert karta_wyjety(at, "A: ") == {"A: Wrocław CJO": 2}
+    assert [i.value for i in at.info] == [
+        "Wybierz zakres dat oraz co najmniej jedną kategorię statusu."
+    ]
+    assert at.dataframe[0].value["Kategoria"].tolist() == ["AKTYWNY", "ZAPISANY", "REZYGNACJA", "INNE"]
+
+    # filtr placówki z sidebaru też nie dotyczy porównania
+    at2 = odpal(tmp_path, monkeypatch)
+    at2.multiselect[1].set_value(["(brak placówki)"]).run()
+    assert not at2.exception
+    assert karta_wyjety(at2, "A: ") == {"A: Wrocław CJO": 2}
+
+
+def test_porownanie_pusty_zakres_dat_komunikat_przeglad_zyje(tmp_path, monkeypatch):
+    """Pusty zakres dat w porównaniu → st.info, bez stopowania całej aplikacji."""
+    at = odpal(tmp_path, monkeypatch)
+    at.date_input[0].set_value((date(2026, 2, 16), date(2026, 3, 2))).run()
+    assert not at.exception
+    assert "Brak zapisów w porównywanych placówkach dla wybranego zakresu dat." in [
+        i.value for i in at.info
+    ]
+    # Przegląd żyje: 16.02–2.03 łapie zapis 3 (REZYGNACJA, „brak placówki")
+    assert karty(at) == {
+        "Wszystkie zapisy": 1,
+        "AKTYWNY": 0,
+        "ZAPISANY": 0,
+        "REZYGNACJA": 1,
+        "INNE": 0,
+    }
 
 
 def test_dashboard_bez_bazy_wskazuje_runner_a_nie_wysadza_sie(tmp_path, monkeypatch):

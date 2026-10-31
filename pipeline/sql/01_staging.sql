@@ -21,7 +21,9 @@ SELECT
     "Kliknięto przesłano umowę"         AS kliknieto_przeslano_umowe,
     "Nauczyciel potwierdził realizację" AS nauczyciel_potwierdzil_realizacje,
     "Źródło potwierdzenia umowy"        AS zrodlo_potwierdzenia_umowy,
-    "Źródło potwierdzenia nauczyciela"  AS zrodlo_potwierdzenia_nauczyciela
+    "Źródło potwierdzenia nauczyciela"  AS zrodlo_potwierdzenia_nauczyciela,
+    nullif("ID placówki (z zapisu)", '')   AS id_placowki,
+    nullif("Placówka (z zapisu)", '')       AS placowka_z_zapisu
 FROM read_csv(
     getvariable('csv_path'),
     delim = ';',

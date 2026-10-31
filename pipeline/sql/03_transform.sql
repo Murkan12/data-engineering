@@ -8,6 +8,7 @@
 CREATE OR REPLACE TABLE fakty_zapisy AS
 SELECT
     try_cast(id_zapisu AS BIGINT)  AS id_zapisu,
+    try_cast(id_placowki AS BIGINT) AS id_placowki,
     nullif(status_zapisu, '')      AS status_zapisu,
     nullif(etap_zapisu, '')        AS etap_zapisu,
     nullif(id_grupy, '')           AS id_grupy,
