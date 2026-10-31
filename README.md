@@ -53,9 +53,10 @@ Dwie zakładki: **Przegląd** i **Porównanie placówek**. Filtry w sidebarze
 - **Kategoria statusu** (`AKTYWNY`, `ZAPISANY`, `REZYGNACJA`, `INNE`) — tylko Przegląd,
 - **Placówka** (multiselect z listy realnych placówek wymiaru
   `typ='realna'`, domyślnie wszystkie) — tylko Przegląd; przelicza
-  KPI/pie/linię w miejscu, bez nowych elementów wykresów. Place testowe
-  („X-Baza Testowa", „(bez nazwy)") i wiersze bez placówki nie mają
-  odniesienia w dashboardzie — odpada też kubełek „(brak placówki)".
+  KPI/pie/linię w miejscu, bez nowych elementów wykresów. Byt testowy
+  („X-Baza Testowa"), placówka bez nazwy („(bez nazwy)") i wiersze bez
+  placówki nie mają odniesienia w dashboardzie — odpada też
+  kubełek „(brak placówki)".
 
 Przegląd: karty KPI („Wszystkie zapisy" + liczebność per kategoria), piechart
 proporcji i wykres liniowy nowych zapisów — wszystkie liczone z

@@ -110,16 +110,14 @@ wybrane_etykiety = sidebar.multiselect(
 )
 
 # Fragmentator placówki: globalny multiselect z listą realnych placówek
-# (typ='realna' w wymiarze — dane testowe/bez nazwy/bez placówki nie mają tu
-# odniesienia), domyślnie wszystkie — przelicza KPI/pie/linia w miejscu, bez
-# nowych elementów wykresów. Dotyczy tylko zakładki „Przegląd".
-etykiety_placowek = list(
-    dict.fromkeys(
-        query("SELECT nazwa_wyswietlana FROM dim_placowka WHERE typ = 'realna' ORDER BY 1")[
-            "nazwa_wyswietlana"
-        ].tolist()
-    )
-)
+# (typ='realna' w wymiarze — byty testowe, bez nazwy i bez placówki nie mają
+# tu odniesienia), domyślnie wszystkie — przelicza KPI/pie/linia w miejscu, bez
+# nowych elementów wykresów. Dotyczy tylko zakładki „Przegląd". Lista jest
+# współdzielona z porównaniem (jedno źródło decyzji; nazwy displayowe są
+# unikalne co do asercji potoku).
+etykiety_placowek = query(
+    "SELECT nazwa_wyswietlana FROM dim_placowka WHERE typ = 'realna' ORDER BY 1"
+)["nazwa_wyswietlana"].tolist()
 wybrane_placowki = sidebar.multiselect(
     "Placówka", etykiety_placowek, default=etykiety_placowek
 )
@@ -222,12 +220,10 @@ with tab_przeglad:
 
 with tab_porownanie:
     # Porównanie dwóch placówek (story 27, 28). Selektory tylko z realnymi
-    # placówkami (w tym 222 „Dział Sprzedaży"; bez bytów testowych i bez
-    # nazwy) — wykluczenie idzie przez atrybut typ w dim_placowka, nie twardą
-    # listę tutaj.
-    realne_placowki = query(
-        "SELECT nazwa_wyswietlana FROM dim_placowka WHERE typ = 'realna' ORDER BY 1"
-    )["nazwa_wyswietlana"].tolist()
+    # placówkami (w tym 222 „Dział Sprzedaży"; bez bytu testowego i bez nazwy)
+    # — ta sama lista co w filtrze Przeglądu, wykluczenie idzie przez atrybut
+    # typ w dim_placowka, nie twardą listę tutaj.
+    realne_placowki = etykiety_placowek
 
     if len(realne_placowki) < 2:
         st.info("Porównanie wymaga co najmniej dwóch realnych placówek w hurtowni.")

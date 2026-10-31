@@ -1,7 +1,7 @@
 -- Warstwa marta: zmaterializowane tabele konsumowane przez dashboard (read-only).
--- Filtr typ='realna' (join do wymiaru placówki) odrzuca byty testowe
--- (206 X-Baza Testowa), placówki bez nazwy (200) i wierszy bez placówki —
--- dane testowe nie mają odniesienia w dashboardzie; fakty zostają kompletne.
+-- Filtr typ='realna' (join do wymiaru placówki) odrzuca byt testowy (206 X-Baza
+-- Testowa), placówkę bez nazwy (200) i wiersze bez placówki — dashboard operuje
+-- wyłącznie na realnych placówkach; fakty i wymiar zostają kompletne do audytu.
 
 -- Liczebności per kategoria biznesowa i status (ziarno metryki = distinct ID zapisu),
 -- z wymiarem placówki (tylko realne).

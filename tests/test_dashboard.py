@@ -212,7 +212,9 @@ def test_dane_testowe_nigdy_nie_maja_odniesienia_na_dashboardzie(tmp_path, monke
     }
     assert plaster_pie(at) == {"AKTYWNY": 1, "ZAPISANY": 1}
     assert "Dział Sprzedaży" in at.selectbox[0].options
-    assert "X-Baza Testowa" not in str([m.label for m in at.metric])
+    for brud in ("X-Baza Testowa", "(bez nazwy)", "(brak placówki)"):
+        assert brud not in at.selectbox[0].options + at.selectbox[1].options
+        assert brud not in at.multiselect[1].options
 
 
 def test_porownanie_renderuje_domyslna_reale_pare(tmp_path, monkeypatch):
@@ -296,8 +298,10 @@ def test_porownanie_ignoruje_filtry_kategorii_i_placowki(tmp_path, monkeypatch):
     assert karta_wyjety(at2, "A: ") == {"A: Wrocław CJO": 2}
 
 
-def test_porownanie_pusty_zakres_dat_komunikat_przeglad_zyje(tmp_path, monkeypatch):
-    """Pusty zakres dat w porównaniu → st.info, bez stopowania całej aplikacji."""
+def test_porownanie_pusty_zakres_dat_komunikaty_bez_stopowania_aplikacji(tmp_path, monkeypatch):
+    """Pusty zakres dat → obie zakładki gaśnie komunikatem st.info, bez wyjątku
+    i bez stopowania aplikacji (kubełka „(brak placówki)" już nie ma, więc
+    zapis 3 nie ratuje Przeglądu)."""
     at = odpal(tmp_path, monkeypatch)
     at.date_input[0].set_value((date(2026, 2, 16), date(2026, 3, 2))).run()
     assert not at.exception
