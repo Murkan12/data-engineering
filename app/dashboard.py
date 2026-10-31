@@ -9,6 +9,7 @@ Uruchomienie:
 
 from __future__ import annotations
 
+import contextlib
 import os
 from pathlib import Path
 
@@ -20,40 +21,43 @@ import streamlit as st
 BASE_DIR = Path(__file__).resolve().parent.parent
 DB_PATH = Path(os.environ.get("DATAENG_DUCKDB", BASE_DIR / "data" / "warehouse.duckdb"))
 
-KATEGORIA_ETYKIETA = {
-    "aktywny": "AKTYWNY",
-    "zapisany": "ZAPISANY",
-    "rezygnacja": "Rezygnacja",
-    "tylko_filter": "INNE",
-}
-
 st.set_page_config(page_title="Zapisy na kursy", layout="wide")
 
 
-@st.cache_data(ttl=300)
-def query(sql: str, params: list | None = None) -> pd.DataFrame:
-    """Odczyt read-only z bazy DuckDB zmaterializowanej przez potok."""
+@contextlib.contextmanager
+def polaczenie() -> duckdb.DuckDBPyConnection:
     con = duckdb.connect(str(DB_PATH), read_only=True)
     try:
-        return con.execute(sql, params or []).df()
+        yield con
     finally:
         con.close()
+
+
+def query(sql: str, params: list | None = None) -> pd.DataFrame:
+    """Odczyt read-only z bazy DuckDB zmaterializowanej przez potok."""
+    with polaczenie() as con:
+        return con.execute(sql, params or []).df()
 
 
 def brak_bazy() -> bool:
     if not DB_PATH.exists():
         return True
-    con = duckdb.connect(str(DB_PATH), read_only=True)
     try:
-        tabel = {
-            row[0]
-            for row in con.execute("SELECT table_name FROM information_schema.tables").fetchall()
-        }
+        with polaczenie() as con:
+            tabel = {
+                row[0]
+                for row in con.execute(
+                    "SELECT table_name FROM information_schema.tables"
+                ).fetchall()
+            }
         return {"fakty_zapisy", "mart_liczby_statusu", "mart_nowe_zapisy_dziennie"} - tabel != set()
     except duckdb.Error:
         return True
-    finally:
-        con.close()
+
+
+# Etykiety kategorii biznesowych bierzemy ze słownika (dim_status);
+# plaster „INNE" to etykieta własna dashboardu dla kategorii tylko_filter.
+KATEGORIA_INNE = "INNE"
 
 
 if brak_bazy():
@@ -71,6 +75,20 @@ st.caption(
 )
 
 # --- KPI: liczebności bezwzględne trzech kategorii (story 1, 11) --------------
+KATEGORIA_ETYKIETA = {
+    **dict(
+        query(
+            """
+            SELECT kategoria_biznesowa, min(etykieta_ui)
+            FROM dim_status
+            WHERE kategoria_biznesowa <> 'tylko_filter'
+            GROUP BY 1
+            """
+        ).values
+    ),
+    "tylko_filter": KATEGORIA_INNE,
+}
+
 liczby_kategorie = query(
     """
     SELECT kategoria_biznesowa, sum(liczba_zapisow) AS liczba
@@ -90,11 +108,11 @@ pie = liczby_kategorie.copy()
 pie["kategoria"] = pie["kategoria_biznesowa"].map(KATEGORIA_ETYKIETA)
 pie = pie.sort_values("liczba", ascending=False)
 
-co, pie_kolumna = st.columns([1, 2])
-with co:
+opis_kolumna, wykres_kolumna = st.columns([1, 2])
+with opis_kolumna:
     st.subheader("Proporcje kategorii statusów")
     st.caption("Statusy HISTORYCZNY (migracyjne) są odrzucane w potoku i nie wchodzą do proporcji.")
-with pie_kolumna:
+with wykres_kolumna:
     wykres_pie = (
         alt.Chart(pie)
         .mark_arc(innerRadius=60)
@@ -128,17 +146,17 @@ statusy = query(
 )
 etapy = query("SELECT DISTINCT etap_zapisu FROM mart_nowe_zapisy_dziennie ORDER BY 1")
 
-z_sidebarem = st.sidebar
-od_do = z_sidebarem.date_input(
+sidebar = st.sidebar
+od_do = sidebar.date_input(
     "Zakres dat",
     value=(zakres["od"][0], zakres["do"][0]),
     min_value=zakres["od"][0],
     max_value=zakres["do"][0],
 )
-wybrane_statusy = z_sidebarem.multiselect(
+wybrane_statusy = sidebar.multiselect(
     "Status zapisu", statusy["status"].tolist(), default=statusy["status"].tolist()
 )
-wybrane_etapy = z_sidebarem.multiselect(
+wybrane_etapy = sidebar.multiselect(
     "Etap zapisu", etapy["etap_zapisu"].tolist(), default=etapy["etap_zapisu"].tolist()
 )
 

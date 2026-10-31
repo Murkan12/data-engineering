@@ -20,14 +20,6 @@ import duckdb
 BASE_DIR = Path(__file__).resolve().parent.parent
 SQL_DIR = Path(__file__).resolve().parent / "sql"
 
-# Kolejność ma znaczenie: słownik przed transformacją (check), marts po fakcie.
-SQL_SCRIPTS = [
-    "01_staging.sql",
-    "02_dim_status.sql",
-    "03_transform.sql",
-    "04_marts.sql",
-]
-
 EXIT_OK = 0
 EXIT_USAGE = 1
 EXIT_STATUS_DICTIONARY = 2  # nieznany status → fail-fast
@@ -37,20 +29,28 @@ class PipelineError(RuntimeError):
     """Błąd potoku przerywający działanie z nonzero exit code."""
 
 
+class UsageError(PipelineError):
+    """Błąd wywołania (np. brak pliku źródłowego) — nie asercja słownika."""
+
+
+def _wykonaj(con: duckdb.DuckDBPyConnection, skrypt: str) -> None:
+    con.execute((SQL_DIR / skrypt).read_text(encoding="utf-8"))
+
+
 def run_pipeline(csv_path: Path, db_path: Path) -> dict[str, int]:
     if not csv_path.exists():
-        raise PipelineError(f"Plik CSV nie istnieje: {csv_path}")
+        raise UsageError(f"Plik CSV nie istnieje: {csv_path}")
 
     con = duckdb.connect(str(db_path))
     try:
         # Ścieżka pliku widoczna dla skryptów SQL przez getvariable('csv_path').
         con.execute("SET VARIABLE csv_path = ?", [str(csv_path)])
-        for script in SQL_SCRIPTS:
-            sql = (SQL_DIR / script).read_text(encoding="utf-8")
-            con.execute(sql)
-            if script == "02_dim_status.sql":
-                # Asercja tuż po zasileniu stagingu i słownika, przed transformacją.
-                _assert_znane_statusy(con, csv_path)
+        _wykonaj(con, "01_staging.sql")
+        _wykonaj(con, "02_dim_status.sql")
+        # Asercja słownika po zasileniu stagingu, PRZED materializacją faktów.
+        _assert_znane_statusy(con, csv_path)
+        _wykonaj(con, "03_transform.sql")
+        _wykonaj(con, "04_marts.sql")
         summary = _podsumowanie(con)
     finally:
         con.close()
@@ -107,6 +107,9 @@ def main(argv: list[str] | None = None) -> int:
     args.db.parent.mkdir(parents=True, exist_ok=True)
     try:
         summary = run_pipeline(args.csv, args.db)
+    except UsageError as err:
+        print(f"BŁĄD POTOKU: {err}", file=sys.stderr)
+        return EXIT_USAGE
     except PipelineError as err:
         print(f"BŁĄD POTOKU: {err}", file=sys.stderr)
         return EXIT_STATUS_DICTIONARY

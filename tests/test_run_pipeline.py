@@ -86,8 +86,8 @@ def test_zdarzenia_unpivot_kolumn_aktywnosci_z_polskimi_datami(tmp_path):
         kol = [row[0] for row in con.execute("SELECT * FROM zdarzenia LIMIT 0").description]
         assert kol == ["id_zapisu", "aktywnosc", "czas_wystapienia", "zrodlo_potwierdzenia"]
 
-        # 1 utworzono + (LangLion, utworzono, umowa, nauczyciel) + 1 + 1 (zdedup.)
-        assert con.execute("SELECT count(*) FROM zdarzenia").fetchone()[0] == 7
+        # 1 utworzono + (LangLion, utworzono, umowa, nauczyciel) + 1 + 2 (zdedup.)
+        assert con.execute("SELECT count(*) FROM zdarzenia").fetchone()[0] == 8
 
         # data jednocyfrowa „1.04.2026 9:30" sparsowana do poprawnego timestampu
         czas = con.execute(
@@ -109,10 +109,16 @@ def test_zdarzenia_unpivot_kolumn_aktywnosci_z_polskimi_datami(tmp_path):
         assert czasy["Data zapisu w LangLionie"] < czasy["Utworzono zapis w Fenku"]
         assert czasy["Data zapisu w LangLionie"] == datetime(2026, 2, 14, 10, 0)
 
-        # zapis wielo-grupowy nie mnoży zdarzeń (kolumny powtórzone w obu wierszach)
+        # zapis wielo-grupowy nie mnoży zdarzeń — dedup po trójce kluczy,
+        # nawet gdy źródła potwierdzenia różnią się między zduplikowanymi wierszami
+        umowa5 = con.execute(
+            "SELECT count(*), max(zrodlo_potwierdzenia) FROM zdarzenia "
+            "WHERE id_zapisu = 5 AND aktywnosc = 'Kliknięto przesłano umowę'"
+        ).fetchone()
+        assert umowa5 == (1, "portal")
         assert con.execute(
             "SELECT count(*) FROM zdarzenia WHERE id_zapisu = 5"
-        ).fetchone()[0] == 1
+        ).fetchone()[0] == 2
     finally:
         con.close()
 
@@ -162,7 +168,7 @@ def test_mart_dziennych_nowych_zapisow_z_wymiarami_do_filtrowania(tmp_path):
             (date(2026, 4, 1), "AKTYWNY", "sales", "aktywny", 1),
         ]
 
-        # HISTORYCZNY nie leave śladu na linii czasu (artefakt migracyjny 15.02 16:49)
+        # HISTORYCZNY nie zostawia śladu na linii czasu (artefakt migracyjny 15.02 16:49)
         assert sum(w[4] for w in wiersze) == 4
 
         # suma dzienna to distinct po ID zapisu, nie wiersze źródłowe
@@ -210,7 +216,7 @@ def test_potok_jest_idempotentny_pelne_przeladowanie(tmp_path):
     try:
         for tabela, oczekiwana in [
             ("fakty_zapisy", 4),
-            ("zdarzenia", 7),
+            ("zdarzenia", 8),
             ("mart_liczby_statusu", 3),
             ("mart_nowe_zapisy_dziennie", 4),
         ]:

@@ -32,14 +32,14 @@ QUALIFY row_number() OVER (
 --   * „Źródło potwierdzenia umowy/nauczyciela" jako atrybuty właściwych zdarzeń.
 
 CREATE OR REPLACE TABLE zdarzenia AS
-SELECT DISTINCT
+SELECT
     id_zapisu,
     aktywnosc,
     czas_wystapienia,
-    zrodlo_potwierdzenia
+    max(zrodlo_potwierdzenia) AS zrodlo_potwierdzenia
 FROM (
     SELECT
-        id_zapisu,
+        try_cast(id_zapisu AS BIGINT) AS id_zapisu,
         unnest([
             'Utworzono zapis w Fenku',
             'Data zapisu w LangLionie',
@@ -64,4 +64,5 @@ FROM (
     FROM staging_zapisy
     WHERE nullif(status_zapisu, '') <> 'HISTORYCZNY'
 )
-WHERE czas_wystapienia IS NOT NULL;
+WHERE czas_wystapienia IS NOT NULL
+GROUP BY 1, 2, 3;
