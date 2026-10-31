@@ -58,7 +58,7 @@ def run_pipeline(csv_path: Path, db_path: Path) -> dict[str, int]:
 
 
 def _assert_znane_statusy(con: duckdb.DuckDBPyConnection, csv_path: Path) -> None:
-    """Fail-fast: każdy status spoza słownika przerywa potok (story 18)."""
+    """Fail-fast: każdy status spoza słownika przerywa potok (story 17)."""
     nieznane = con.execute(
         """
         SELECT DISTINCT coalesce(nullif(status_zapisu, ''), '(pusty)') AS status

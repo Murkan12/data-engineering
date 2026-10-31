@@ -50,7 +50,7 @@ def brak_bazy() -> bool:
                     "SELECT table_name FROM information_schema.tables"
                 ).fetchall()
             }
-        return {"fakty_zapisy", "mart_liczby_statusu", "mart_nowe_zapisy_dziennie"} - tabel != set()
+        return {"fakty_zapisy", "mart_nowe_zapisy_dziennie"} - tabel != set()
     except duckdb.Error:
         return True
 
@@ -74,7 +74,6 @@ st.caption(
     "(nie data zapisu w LangLionie)."
 )
 
-# --- KPI: liczebności bezwzględne trzech kategorii (story 1, 11) --------------
 KATEGORIA_ETYKIETA = {
     **dict(
         query(
@@ -89,29 +88,73 @@ KATEGORIA_ETYKIETA = {
     "tylko_filter": KATEGORIA_INNE,
 }
 
-liczby_kategorie = query(
-    """
-    SELECT kategoria_biznesowa, sum(liczba_zapisow) AS liczba
-    FROM mart_liczby_statusu
-    GROUP BY 1
-    """
+# --- Filtry: zakres dat + kategoria statusu (story 8, 9) -----------------------
+# Kategorie w kolejności lejka; filtruje się po kategoria_biznesowa, nie po
+# surowych statusach. Etap zapisu nie jest już filtrem (pozostaje w danych).
+KATEGORIE_LEJEK = ["aktywny", "zapisany", "rezygnacja", "tylko_filter"]
+etykiety_kategorii = [KATEGORIA_ETYKIETA[k] for k in KATEGORIE_LEJEK]
+ETYKIETA_DO_KATEGORIA = dict(zip(etykiety_kategorii, KATEGORIE_LEJEK))
+
+sidebar = st.sidebar
+zakres = query(
+    "SELECT min(data_utworzenia) AS od, max(data_utworzenia) AS do FROM mart_nowe_zapisy_dziennie"
 )
-do_kategorii = liczby_kategorie.set_index("kategoria_biznesowa")["liczba"].to_dict()
+od_do = sidebar.date_input(
+    "Zakres dat",
+    value=(zakres["od"][0], zakres["do"][0]),
+    min_value=zakres["od"][0],
+    max_value=zakres["do"][0],
+)
+wybrane_etykiety = sidebar.multiselect(
+    "Kategoria statusu", etykiety_kategorii, default=etykiety_kategorii
+)
 
-kolumny = st.columns(4)
-kolumny[0].metric("Wszystkie zapisy", int(query("SELECT count(*) AS n FROM fakty_zapisy")["n"][0]))
-for kolumna, kategoria in zip(kolumny[1:], ["aktywny", "zapisany", "rezygnacja"]):
-    kolumna.metric(KATEGORIA_ETYKIETA[kategoria], int(do_kategorii.get(kategoria, 0)))
+if len(od_do) != 2 or not wybrane_etykiety:
+    st.info("Wybierz zakres dat oraz co najmniej jedną kategorię statusu.")
+    st.stop()
 
-# --- Piechart: 3 kategorie + plaster „INNE" (story 5, 6) ----------------------
-pie = liczby_kategorie.copy()
-pie["kategoria"] = pie["kategoria_biznesowa"].map(KATEGORIA_ETYKIETA)
-pie = pie.sort_values("liczba", ascending=False)
+wybrane_kategorie = [k for k in KATEGORIE_LEJEK if k in {ETYKIETA_DO_KATEGORIA[e] for e in wybrane_etykiety}]
+
+# Wszystkie wykresy i KPI liczone z jednego przefiltrowanego napływu dziennego,
+# więc KPI i pie odzwierciedlają wybrany okres, nie cały zbiór danych.
+przeplyw = query(
+    """
+    SELECT data_utworzenia, kategoria_biznesowa, sum(liczba_nowych_zapisow) AS liczba
+    FROM mart_nowe_zapisy_dziennie
+    WHERE data_utworzenia BETWEEN ? AND ?
+      AND kategoria_biznesowa IN ({})
+    GROUP BY 1, 2
+    ORDER BY 1
+    """.format(", ".join("?" * len(wybrane_kategorie))),
+    [od_do[0], od_do[1], *wybrane_kategorie],
+)
+if przeplyw.empty:
+    st.info("Brak zapisów dla wybranych filtrów.")
+    st.stop()
+
+liczby_kategorie = przeplyw.groupby("kategoria_biznesowa")["liczba"].sum()
+# (etykieta, liczba) per wybrana kategoria — wspólne dla kart KPI i plastra pie.
+liczebnosci = [
+    (KATEGORIA_ETYKIETA[k], int(liczby_kategorie.get(k, 0))) for k in wybrane_kategorie
+]
+
+# --- KPI: suma wybranych kategorii + liczebność per kategoria (story 1, 10) ---
+kolumny = st.columns(1 + len(liczebnosci))
+kolumny[0].metric("Wszystkie zapisy", int(przeplyw["liczba"].sum()))
+for kolumna, (etykieta, liczba) in zip(kolumny[1:], liczebnosci):
+    kolumna.metric(etykieta, liczba)
+
+# --- Piechart: wybrane kategorie, plaster „INNE" (story 5, 6) -----------------
+pie = pd.DataFrame(liczebnosci, columns=["kategoria", "liczba"])
+pie = pie[pie["liczba"] > 0].sort_values("liczba", ascending=False)
 
 opis_kolumna, wykres_kolumna = st.columns([1, 2])
 with opis_kolumna:
     st.subheader("Proporcje kategorii statusów")
-    st.caption("Statusy HISTORYCZNY (migracyjne) są odrzucane w potoku i nie wchodzą do proporcji.")
+    st.caption(
+        "Proporcje liczone dla wybranego zakresu dat i kategorii. "
+        "Statusy HISTORYCZNY (migracyjne) są odrzucane w potoku i nie wchodzą do proporcji."
+    )
 with wykres_kolumna:
     wykres_pie = (
         alt.Chart(pie)
@@ -130,66 +173,20 @@ with wykres_kolumna:
     )
     st.altair_chart(wykres_pie, width='stretch')
 
-# --- Wykres liniowy: nowo utworzone zapisy w czasie, z filtrami (story 7–10) --
+# --- Wykres liniowy: nowo utworzone zapisy w czasie (story 7) ------------------
 st.subheader("Nowo utworzone zapisy na dzień")
 st.caption("To napływ (flow), nie stan (stock). Oś czasu: data utworzenia w Fenku.")
 
-zakres = query(
-    "SELECT min(data_utworzenia) AS od, max(data_utworzenia) AS do FROM mart_nowe_zapisy_dziennie"
-)
-statusy = query(
-    """
-    SELECT DISTINCT f.status_zapisu AS status, d.etykieta_ui AS etykieta
-    FROM fakty_zapisy f JOIN dim_status d ON d.status_zapisu = f.status_zapisu
-    ORDER BY 2
-    """
-)
-etapy = query("SELECT DISTINCT etap_zapisu FROM mart_nowe_zapisy_dziennie ORDER BY 1")
-
-sidebar = st.sidebar
-od_do = sidebar.date_input(
-    "Zakres dat",
-    value=(zakres["od"][0], zakres["do"][0]),
-    min_value=zakres["od"][0],
-    max_value=zakres["do"][0],
-)
-wybrane_statusy = sidebar.multiselect(
-    "Status zapisu", statusy["status"].tolist(), default=statusy["status"].tolist()
-)
-wybrane_etapy = sidebar.multiselect(
-    "Etap zapisu", etapy["etap_zapisu"].tolist(), default=etapy["etap_zapisu"].tolist()
-)
-
-if len(od_do) == 2 and wybrane_statusy and wybrane_etapy:
-    przeplyw = query(
-        """
-        SELECT data_utworzenia, kategoria_biznesowa, sum(liczba_nowych_zapisow) AS liczba
-        FROM mart_nowe_zapisy_dziennie
-        WHERE data_utworzenia BETWEEN ? AND ?
-          AND status_zapisu IN ({})
-          AND etap_zapisu IN ({})
-        GROUP BY 1, 2
-        ORDER BY 1
-        """.format(
-            ", ".join("?" * len(wybrane_statusy)), ", ".join("?" * len(wybrane_etapy))
-        ),
-        [od_do[0], od_do[1], *wybrane_statusy, *wybrane_etapy],
+przeplyw["kategoria"] = przeplyw["kategoria_biznesowa"].map(KATEGORIA_ETYKIETA)
+wykres_linia = (
+    alt.Chart(przeplyw)
+    .mark_line(point=True)
+    .encode(
+        x=alt.X("data_utworzenia:T", title="Data utworzenia w Fenku"),
+        y=alt.Y("liczba:Q", title="Nowe zapisy"),
+        color=alt.Color("kategoria:N", legend=alt.Legend(title="Kategoria")),
+        tooltip=["data_utworzenia", "kategoria", "liczba"],
     )
-    if przeplyw.empty:
-        st.info("Brak zapisów dla wybranych filtrów.")
-    else:
-        przeplyw["kategoria"] = przeplyw["kategoria_biznesowa"].map(KATEGORIA_ETYKIETA)
-        wykres_linia = (
-            alt.Chart(przeplyw)
-            .mark_line(point=True)
-            .encode(
-                x=alt.X("data_utworzenia:T", title="Data utworzenia w Fenku"),
-                y=alt.Y("liczba:Q", title="Nowe zapisy"),
-                color=alt.Color("kategoria:N", legend=alt.Legend(title="Kategoria")),
-                tooltip=["data_utworzenia", "kategoria", "liczba"],
-            )
-            .properties(height=320)
-        )
-        st.altair_chart(wykres_linia, width='stretch')
-else:
-    st.info("Wybierz zakres dat oraz co najmniej jeden status i etap.")
+    .properties(height=320)
+)
+st.altair_chart(wykres_linia, width='stretch')

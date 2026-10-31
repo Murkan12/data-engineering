@@ -13,7 +13,7 @@ CREATE OR REPLACE TABLE dim_status (
 INSERT INTO dim_status VALUES
     ('AKTYWNY',                      'aktywny',      'AKTYWNY'),
     ('ZAPISANY',                     'zapisany',     'ZAPISANY'),
-    ('REZYGNACJA',                   'rezygnacja',   'Rezygnacja'),
+    ('REZYGNACJA',                   'rezygnacja',   'REZYGNACJA'),
     ('KONTAKT_NIGDY_NIE_OSIAGNIETY', 'tylko_filter', 'Kontakt nigdy nie osiągnięty'),
     ('NIEPRAWIDLOWE_DANE_KONTAKTOWE','tylko_filter', 'Nieprawidłowe dane kontaktowe'),
     ('UTRACONY_KONTAKT_30D',         'tylko_filter', 'Utracony kontakt 30 dni'),
