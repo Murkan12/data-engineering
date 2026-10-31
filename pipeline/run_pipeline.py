@@ -50,8 +50,8 @@ def run_pipeline(csv_path: Path, db_path: Path) -> dict[str, int]:
         # Asercja słownika po zasileniu stagingu, PRZED materializacją faktów.
         _assert_znane_statusy(con, csv_path)
         # Asercje wymiaru placówek: spójność id→nazwa na stagingu, potem budowa
-        # dim i pokrycie — wszystko PRZED faktami (fail-fast jak słownik statusów).
-        _assert_spójność_placówek(con, csv_path)
+        # dim i pokrycie/unikalność nazw — wszystko PRZED faktami (fail-fast jak słownik statusów).
+        _assert_spojnosc_placowek(con, csv_path)
         _wykonaj(con, "05_dim_placowka.sql")
         _assert_dim_placowka(con)
         _wykonaj(con, "03_transform.sql")
@@ -81,15 +81,17 @@ def _assert_znane_statusy(con: duckdb.DuckDBPyConnection, csv_path: Path) -> Non
         )
 
 
-def _assert_spójność_placówek(con: duckdb.DuckDBPyConnection, csv_path: Path) -> None:
-    """Fail-fast: jedno ID placówki nie może mieć wielu nazw źródłowych (story 26)."""
+def _assert_spojnosc_placowek(con: duckdb.DuckDBPyConnection, csv_path: Path) -> None:
+    """Fail-fast: jedno ID placówki nie może mieć wielu nazw źródłowych (story 30).
+    Pusta nazwa liczy się jako odrębna wartość — ID z nazwą i bez nazwy to tez konflikt
+    (count(DISTINCT) ignoruje NULL-e, stad koalesce)."""
     konflikty = con.execute(
         """
-        SELECT id_placowki, list(DISTINCT placowka_z_zapisu) AS nazwy
+        SELECT id_placowki, list(DISTINCT coalesce(placowka_z_zapisu, '(pusty)')) AS nazwy
         FROM staging_zapisy
         WHERE id_placowki IS NOT NULL
         GROUP BY id_placowki
-        HAVING count(DISTINCT placowka_z_zapisu) > 1
+        HAVING count(DISTINCT coalesce(placowka_z_zapisu, '(pusty)')) > 1
         ORDER BY min(try_cast(id_placowki AS BIGINT))
         """
     ).fetchall()
@@ -105,7 +107,9 @@ def _assert_spójność_placówek(con: duckdb.DuckDBPyConnection, csv_path: Path
 
 
 def _assert_dim_placowka(con: duckdb.DuckDBPyConnection) -> None:
-    """Asercja pokrycia: każde niepuste ID ze stagingu ma wiersz w dim_placowka."""
+    """Asercje wymiaru: pokrycie wszystkich ID ze stagingu oraz unikalnosc
+    nazw displayowych — filtrowanie i selektory dashboarda ida po etykiecie,
+    wiec dwoch ID z ta sama nazwa (takze po normalizacji) daloby silent merge."""
     braki = con.execute(
         """
         SELECT count(*)
@@ -121,6 +125,35 @@ def _assert_dim_placowka(con: duckdb.DuckDBPyConnection) -> None:
         raise PipelineError(
             f"Wymiar dim_placowka nie pokrywa {braki} ID placówek ze stagingu "
             "— sprawdź pipeline/sql/05_dim_placowka.sql."
+        )
+
+    duplikaty = con.execute(
+        """
+        SELECT nazwa_wyswietlana, list(id_placowki) AS ids
+        FROM dim_placowka
+        GROUP BY nazwa_wyswietlana
+        HAVING count(*) > 1
+        ORDER BY 1
+        """
+    ).fetchall()
+    if duplikaty:
+        opis = "; ".join(
+            f"„{nazwa}”: ID {', '.join(map(str, ids))}" for nazwa, ids in duplikaty
+        )
+        raise PipelineError(
+            f"Dim_placowka ma powtórzone nazwy displayowe pod różnymi ID: {opis}. "
+            "Dashboard filtruje i porównuje placówki po etykiecie — rozjazd grozi "
+            "silent merge; rozstrzygnij nazwy w pipeline/sql/05_dim_placowka.sql."
+        )
+
+    zarezerwowana = con.execute(
+        "SELECT count(*) FROM dim_placowka WHERE nazwa_wyswietlana = '(brak placówki)'"
+    ).fetchone()[0]
+    if zarezerwowana:
+        raise PipelineError(
+            "Nazwa '(brak placówki)' jest zarezerwowana dla kubełka wierszy bez "
+            "placówki — realna placówka nie może się tak nazywać "
+            "(pipeline/sql/05_dim_placowka.sql)."
         )
 
 

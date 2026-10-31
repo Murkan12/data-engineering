@@ -35,8 +35,10 @@ uruchomić obecnej wersji potoku. Różnice między snapshotami: +227 zapisów o
 | `mart_nowe_zapisy_dziennie` | flow nowych zapisów na dzień z wymiarem `placowka` (kubełek „(brak placówki)"); źródło KPI, pie, linii i porównania (filtrowalne) |
 
 Asercje potoku (fail-fast): nieznany status spoza słownika oraz rozjazd
-nazw pod jednym `id_placowki` / brak pokrycia `dim_placowka` ze stagingiem
-przerywają działanie z nonzero exit code, przed materializacją faktów.
+nazw pod jednym `id_placowki` (też wariant „nazwa + pusta nazwa"), duplikat
+nazwy displayowej pod różnymi ID, etykieta kolidująca z kubełkiem
+„(brak placówki)" i brak pokrycia `dim_placowka` ze stagingiem przerywają
+działanie z nonzero exit code, przed materializacją faktów.
 
 Uwaga biznesowa: miarą czasu jest **data utworzenia w Fenku**, nie data zapisu
 w LangLionie. Status `HISTORYCZNY` (~3270 wierszy) to artefakt migracyjny i jest

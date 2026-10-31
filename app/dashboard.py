@@ -220,8 +220,9 @@ with tab_przeglad:
             st.altair_chart(wykres_linia, width='stretch')
 
 with tab_porownanie:
-    # Selektory tylko z realnymi placówkami — wykluczenie technicznych/bez nazwy/
-    # kubełka idzie przez atrybut typ w dim_placowka, nie twardą listę tutaj.
+    # Porównanie dwóch placówek (story 27, 28). Selektory tylko z realnymi
+    # placówkami — wykluczenie technicznych/bez nazwy/kubełka idzie przez
+    # atrybut typ w dim_placowka, nie twardą listę tutaj.
     realne_placowki = query(
         "SELECT nazwa_wyswietlana FROM dim_placowka WHERE typ = 'realna' ORDER BY 1"
     )["nazwa_wyswietlana"].tolist()

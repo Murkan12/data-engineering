@@ -255,10 +255,30 @@ def test_fakty_i_marty_nosza_placowke_z_kubelkiem_brak(tmp_path):
 def test_konflikt_nazw_tego_samego_id_placowki_przerywa_potok(tmp_path):
     """Asercja dim_placowka: dwa różne nazwy pod jednym ID ⇒ nonzero exit,
     komunikat wskazuje ID, potok staje PRZED faktami (fail-fast, jak słownik statusów).
+    Wariant NULL-ślepy: pod jednym ID nazwa niepusta i pusta ⇒ tez konflikt.
     """
     proc, db = run_pipeline(tmp_path, "zapisy_placowka_konflikt_nazw.csv")
     assert proc.returncode != 0
     assert "128" in proc.stderr
+    assert "144" in proc.stderr, "pusta nazwa + nazwa pod tym samym ID to tez konflikt"
+
+    con = duckdb.connect(str(db), read_only=True)
+    try:
+        istniejace = {
+            row[0]
+            for row in con.execute("SELECT table_name FROM information_schema.tables").fetchall()
+        }
+        assert "fakty_zapisy" not in istniejace
+    finally:
+        con.close()
+
+
+def test_ten_sama_nazwa_displayowa_pod_dwiema_id_przerywa_potok(tmp_path):
+    """Unikalność nazw displayowych w dim: dwa ID z ta sama nazwa grozilby
+    silent merge przy filtrowaniu po etykiecie — asercja stalluje potok."""
+    proc, db = run_pipeline(tmp_path, "zapisy_placowka_dupe_nazwa.csv")
+    assert proc.returncode != 0
+    assert "Poznań CJO" in proc.stderr
 
     con = duckdb.connect(str(db), read_only=True)
     try:

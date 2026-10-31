@@ -46,6 +46,26 @@ def plaster_pie(at: AppTest) -> dict[str, int]:
     return {r["kategoria"]: int(r["liczba"]) for r in dane_wykresu(at, "arc")}
 
 
+def dane_wykresu(at: AppTest, mark: str) -> list[dict]:
+    """Dane wykresu altair o zadanym mark (arc/line/bar), zdekodowane z_arrow."""
+    for wykres in at.get("vega_lite_chart"):
+        spec = json.loads(wykres.proto.spec)
+        m = spec.get("mark")
+        m = m["type"] if isinstance(m, dict) else m
+        if m != mark:
+            continue
+        name = spec["data"]["name"]
+        for ds in wykres.proto.datasets:
+            if ds.name == name:
+                return pa.ipc.open_stream(ds.data.data).read_all().to_pylist()
+    raise AssertionError(f"brak wykresu {mark} w dashboardzie")
+
+
+def karta_wyjety(at: AppTest, prefix: str) -> dict[str, int]:
+    """Metryki o wskazanym prefiksie etykiety (np. 'A: ' z kart porównania)."""
+    return {m.label: int(m.value) for m in at.metric if m.label.startswith(prefix)}
+
+
 def test_dashboard_sie_uruchamia_i_pokazuje_kpi(tmp_path, monkeypatch):
     """Domyślne filtry: 5 kart KPI (wszystkie + 4 kategorie w kolejności lejka).
 
@@ -162,25 +182,6 @@ def test_odfiltrowanie_placowki_przelicza_kpi_w_miejscu(tmp_path, monkeypatch):
         "INNE": 0,
     }
     assert plaster_pie(at) == {"AKTYWNY": 1, "REZYGNACJA": 1}
-
-
-def dane_wykresu(at: AppTest, mark: str) -> list[dict]:
-    """Dane wykresu altair o zadanym mark (arc/line/bar), zdekodowane z_arrow."""
-    for wykres in at.get("vega_lite_chart"):
-        spec = json.loads(wykres.proto.spec)
-        m = spec.get("mark")
-        m = m["type"] if isinstance(m, dict) else m
-        if m != mark:
-            continue
-        name = spec["data"]["name"]
-        for ds in wykres.proto.datasets:
-            if ds.name == name:
-                return pa.ipc.open_stream(ds.data.data).read_all().to_pylist()
-    raise AssertionError(f"brak wykresu {mark} w dashboardzie")
-
-
-def karta_wyjety(at: AppTest, prefix: str) -> dict[str, int]:
-    return {m.label: int(m.value) for m in at.metric if m.label.startswith(prefix)}
 
 
 def test_porownanie_renderuje_domyslna_reale_pare(tmp_path, monkeypatch):
