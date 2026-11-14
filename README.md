@@ -4,7 +4,20 @@ Szkoła językowa: liczebność zapisów na kursy i ich podział na kategorie
 biznesowe `AKTYWNY` / `ZAPISANY` / `REZYGNACJA` (plus `INNE`), z filtrem
 placówek i porównaniem dwóch placówek.
 
-## Uruchomienie
+## Instalacja i uruchomienie
+
+Wymagany Python 3.11 lub nowszy. Zależności są deklarowane w
+[`requirements.txt`](requirements.txt).
+
+```bash
+# Utwórz i aktywuj środowisko wirtualne
+python3.11 -m venv .venv
+source .venv/bin/activate
+
+# Zainstaluj zależności
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+```
 
 ```bash
 # 1. Potok ELT: CSV → staging → słowniki+wymiary → transform → marts
@@ -86,3 +99,21 @@ stany puste).
 
 Pełne wymagania i decyzje: [`docs/spec-zapisy-pipeline.md`](docs/spec-zapisy-pipeline.md).
 Notebook `transform.ipynb` to prior art eksploracyjny (poza potokiem).
+
+Kompletna dokumentacja perspektyw biznesowej, dziedzinowej, technicznej,
+prawnej i etycznej, architektury, słownika danych, decyzji i ograniczeń:
+[`docs/project-documentation.md`](docs/project-documentation.md).
+
+## Dane i zakres
+
+Potok wykorzystuje dostarczony lokalny CSV. Automatyczne pobieranie danych
+zewnętrznych jest celowo poza zakresem tej wersji; wymaganie automatycznego
+pozyskania danych nie jest przez nią spełnione. Dane zostały pozyskane i udostępnione
+za zgodą faktycznej szkoły językowej, z systemu operacyjnego.
+Dane nie są bezpośrednio wrażliwe.
+
+## Użycie AI
+
+Asystenci AI zostali użyci do implementacji uzgodnionych rozwiązań, 
+przeglądu repozytorium i przygotowania `docs/project-documentation.md`. 
+Wyniki testów i zachowanie kodu zostały zweryfikowane w środowisku projektu.
