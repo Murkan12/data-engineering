@@ -4,6 +4,10 @@ Szkoła językowa: liczebność zapisów na kursy i ich podział na kategorie
 biznesowe `AKTYWNY` / `ZAPISANY` / `REZYGNACJA` (plus `INNE`), z filtrem
 placówek i porównaniem dwóch placówek.
 
+## Dokumentacja projektu
+
+Dokładna dokumentacja projektu znajduje się w [`docs/project-documentation.md`](docs/project-documentation.md).
+
 ## Instalacja i uruchomienie
 
 Wymagany Python 3.11 lub nowszy. Zależności są deklarowane w
